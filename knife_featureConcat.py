@@ -13,7 +13,7 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from resnet import ResNet18, ResBlock
+from models.resnet18_concat_feat import ResNet18, ResBlock
 
 class TrainDataset(Dataset):
     def __init__(self, train=True, transform=None):

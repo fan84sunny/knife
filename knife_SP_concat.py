@@ -1,4 +1,3 @@
-import torch.nn.functional as F
 import os
 from pathlib import Path
 from matplotlib import pyplot as plt
@@ -15,8 +14,7 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 # Models
 import torchvision.models as models
-from resnet import ResNet18, ResBlock, Net
-from resnetAttn import ResNet18_Attn
+from models.resnet18_concat_feat import Net
 
 
 def noisy(image, amount=0.004, s_vs_p=0.5, noise_type="SP"):
@@ -205,6 +203,7 @@ def train(epochs=50, lr=1e-4, batch_size=8):
     test_loss_reg, test_acc_reg = [], []
     best = 100
     best_acc = 0.0
+    best_loss = 0.0
     for epoch in range(epochs):
         train_loss, train_acc = 0.0, 0.0
         print(f'\nEpoch: {epoch + 1}/{epochs}')

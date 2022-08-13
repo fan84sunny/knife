@@ -9,7 +9,8 @@ train/
 siamese-pytorch-master/
 ResidualAttentionNetwork/
 siamese-pytorch-master.zip
-
+*.pth
+events.out*
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Python template
