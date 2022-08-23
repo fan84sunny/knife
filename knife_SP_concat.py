@@ -1,9 +1,14 @@
 import os
+import time
 from pathlib import Path
 from matplotlib import pyplot as plt
 from PIL import Image
 import numpy as np
 import random
+from utils import Logger
+import sys
+from datetime import timedelta, datetime
+
 
 from tqdm import tqdm
 import torch
@@ -103,7 +108,6 @@ class TrainDataset(Dataset):
             image = self.transform(image)
         return image, image_flip, self.y[index]
 
-
 class TestDataset(Dataset):
     def __init__(self, train=False, transform=None):
         self.x, self.y = [], []
@@ -136,7 +140,7 @@ class TestDataset(Dataset):
         return image, image_flip, self.y[index]
 
 
-def visualization(train, test, title):
+def visualization(save_path, train, test, title):
     plt.figure()
     plt.plot(train, 'r', label="Train")
     plt.plot(test, 'b', label="Test")
@@ -144,7 +148,7 @@ def visualization(train, test, title):
     plt.xlabel('Epochs')
     plt.ylabel(title)
     plt.title(title)
-    plt.savefig(f'curve/{title}-resnet50-xpre.png')
+    plt.savefig(os.path.join(save_path,f'{title}-resnet50-xpre.png'))
     plt.show()
 
 
@@ -159,16 +163,24 @@ def set_seed(seed):
     os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
     torch.use_deterministic_algorithms(True)
 
+def print_cfg(epochs, batch, lr, save_path, seed, img_size):
+    print('[>] Configuration '.ljust(64, '-'))
+    print('\tTotal epoch: ',epochs)
+    print('\tBatch size: ',batch)
+    print('\tlearning rate: ',lr)
+    print('\tsave path: ',save_path)
+    print('\tseed: ', seed)
+    print('\timg_size: ', img_size)
 
-def train(epochs=50, lr=1e-4, batch_size=8):
+def train(save_path ,epochs=50, lr=1e-4, batch_size=8,img_size=224):
     # set seed
     seed = 610410113
     set_seed(seed)
-
+    print_cfg(epochs, batch_size, lr, save_path, seed, img_size)
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-
+    print('[>] Loading dataset '.ljust(64, '-'))
     transform = transforms.Compose([
-        transforms.Resize([224, 224]),
+        transforms.Resize([img_size, img_size]),
         # transforms.RandomHorizontalFlip(),
         # transforms.RandomVerticalFlip(),
         # transforms.RandomRotation(20),
@@ -180,7 +192,9 @@ def train(epochs=50, lr=1e-4, batch_size=8):
     val_dataset = TrainDataset(train=False, transform=transform)
     train_loader = DataLoader(dataset=train_dataset, num_workers=2, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(dataset=val_dataset, num_workers=2, batch_size=batch_size, shuffle=True)
+    print('[*] Loaded dataset!')
 
+    print('[>] Model '.ljust(64, '-'))
     # MODEL
     ## model: ResNet18
     # model = ResNet18(ResBlock, num_classes=3).to(device)
@@ -193,7 +207,7 @@ def train(epochs=50, lr=1e-4, batch_size=8):
     resnet50.conv1 = nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
     resnet50.maxpool = nn.Identity()
     model = Net(resnet50)
-
+    print('[*] Model initialized!')
     model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
@@ -204,6 +218,8 @@ def train(epochs=50, lr=1e-4, batch_size=8):
     best = 100
     best_acc = 0.0
     best_loss = 0.0
+    print('[>] Begin Training '.ljust(64, '-'))
+
     for epoch in range(epochs):
         train_loss, train_acc = 0.0, 0.0
         print(f'\nEpoch: {epoch + 1}/{epochs}')
@@ -253,20 +269,25 @@ def train(epochs=50, lr=1e-4, batch_size=8):
         if val_loss < best:
             best = val_loss
             best_acc1 = val_acc
-            # torch.save(model, os.path.join('model_save', f'resnet50_xpre_concat_SP.pth'))
-        if val_acc < best_acc:
-            best_loss = val_loss
-            best_acc2 = val_acc
-            torch.save(model, os.path.join('model_save', f'resnet50_xpre_concat_SP_TOPacc.pth'))
+
+            torch.save(model, os.path.join(save_path,f'resnet50_xpre_concat_SP.pth'))
+        # if val_acc < best_acc:
+        #     best_loss = val_loss
+        #     best_acc2 = val_acc
+        #     torch.save(model, os.path.join('model_save', f'resnet50_xpre_concat_SP_TOPacc.pth'))
 
         print(f'Train loss: {train_loss:.4f}\taccuracy: {train_acc:.4f}\n')
         print(f'Test loss: {val_loss:.4f}\taccuracy: {val_acc:.4f}\n')
-    print(f'Best Val loss: {best:.4f}\taccuracy: {best_acc1:.4f}\n')
-    print(f'Best Val loss: {best_loss:.4f}\taccuracy: {best_acc2:.4f}\n')
+    print('[>] Best Valid '.ljust(64, '-'))
+    stat = (
+        f'[+] acc={best_acc1:.4f}\n'
+        f'[+] loss={val_loss:.4f}\n'
+    )
+    print(stat)
 
-    visualization(train_loss_reg, test_loss_reg, 'Loss')
-    visualization(train_acc_reg, test_acc_reg, 'Acc')
-    model = torch.load(os.path.join('model_save', f'resnet50_xpre_concat_SP_TOPacc.pth'), map_location=device)
+    visualization(save_path, train_loss_reg, test_loss_reg, 'Loss')
+    visualization(save_path, train_acc_reg, test_acc_reg, 'Acc')
+    model = torch.load(os.path.join(save_path,f'resnet50_xpre_concat_SP.pth'), map_location=device)
     # visual the test set result
     t_transform = transforms.Compose([
         transforms.Resize([256, 256]),
@@ -274,7 +295,8 @@ def train(epochs=50, lr=1e-4, batch_size=8):
         # transforms.RandomVerticalFlip(),
         # transforms.RandomRotation(20),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[223.711644], std=[52.5672336])
+        # transforms.Normalize(mean=[223.711644], std=[52.5672336]),
+        transforms.Normalize(mean=[1.548061], std=[2.665095]),
     ])
     t_dataset = TestDataset(train=False, transform=t_transform)
     t_loader = DataLoader(dataset=t_dataset, batch_size=1, shuffle=False)
@@ -308,5 +330,21 @@ def train(epochs=50, lr=1e-4, batch_size=8):
 
 
 if __name__ == '__main__':
-    train()
+    current_time = datetime.now().strftime('%b%d_%H-%M-%S') + '_'
+    save_path = os.path.join("/home/ANYCOLOR2434/knife/logs", current_time)
+
+    # setting up writers
+    sys.stdout = Logger(os.path.join(save_path, 'knife_SP_concat.log'))
+
+    # -----------------
+    start = time.time()
+    train(save_path)
+    end = time.time()
+    # -----------------
+
     # SteelDataset()
+
+    print('\n[*] Finish! '.ljust(64, '-'))
+    print(f'[!] total time = {timedelta(seconds=end - start)}s')
+    sys.stdout.flush()
+

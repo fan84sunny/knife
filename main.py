@@ -3,10 +3,18 @@ import random
 import pprint
 import time
 import sys
-import os
-import math
+# import os
+# import math
+import warnings
+warnings.filterwarnings('ignore')
+warnings.warn('DelftStack')
+warnings.warn('Do not show this message')
+print("No Warning Shown")
 
 from datetime import timedelta
+
+from torch.utils.data import DataLoader
+
 from workspace import Workspace
 
 import torch
@@ -17,7 +25,7 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-
+from sklearn.metrics import confusion_matrix, classification_report
 from models import resnet
 from models import resnet_ARM
 
@@ -28,7 +36,7 @@ from tqdm import tqdm
 
 # centerloss module
 from loss import SparseCenterLoss, TripletLoss
-from dataset import *
+from Datasets import *
 
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
@@ -52,7 +60,6 @@ parser.add_argument('--deterministic', default=False, action='store_true')
 best_epoch = 0
 
 def main(cfg):
-
     global device
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -69,44 +76,61 @@ def main(cfg):
     # Loading RAF-DB
     # -----------------
     print('[>] Loading dataset '.ljust(64, '-'))
-    normalize = transforms.Normalize(mean=[0.5752, 0.4495, 0.4012], std=[0.2086, 0.1911, 0.1827])
-    normalize_RAF_Aff = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    normalize = transforms.Normalize(mean=[223.711644], std=[52.5672336])
+    normalize_RAF_Aff = transforms.Normalize(mean=[223.711644], std=[52.5672336])
     normalize_FER = transforms.Normalize(mean=[0.485,], std=[0.229,])
 
-    # train set
-    
-    train_set = datasets.ImageFolder(
-        root=os.path.join(cfg['root_dir'], 'train'),
-        transform=transforms.Compose([
-            transforms.Resize(256),
-            RandomFiveCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize_RAF_Aff,
-            transforms.RandomErasing(scale=(0.02, 0.1))
-        ])
-    )
+    transform = transforms.Compose([
+        transforms.Resize([cfg['img_size'], cfg['img_size']]),
+        transforms.RandomHorizontalFlip(),
+        # transforms.RandomVerticalFlip(),
+        # transforms.RandomRotation(20),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[223.711644], std=[52.5672336])
+    ])
 
-    train_loader = torch.utils.data.DataLoader(
-        train_set,
-        batch_size=cfg['batch_size'], shuffle=True,
-        num_workers=cfg['workers'], pin_memory=True)
+
+    # train set
+    train_dataset = TrainDataset(train=True, transform=transform)
+    train_loader = DataLoader(dataset=train_dataset, num_workers=cfg['workers'], batch_size=cfg['batch_size'],
+                              shuffle=True)
+
+    # train_set = datasets.ImageFolder(
+    #     root=os.path.join(cfg['root_dir'], 'train'),
+    #     transform=transforms.Compose([
+    #         transforms.Resize(256),
+    #         RandomFiveCrop(224),
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         normalize_RAF_Aff,
+    #         transforms.RandomErasing(scale=(0.02, 0.1))
+    #     ])
+    # )
+    # train_loader = torch.utils.data.DataLoader(
+    #     train_set,
+    #     batch_size=cfg['batch_size'], shuffle=True,
+    #     num_workers=cfg['workers'], pin_memory=True)
     
     # validation set
-    
-    val_loader = torch.utils.data.DataLoader(
-        dataset=datasets.ImageFolder(
-            root=os.path.join(cfg['root_dir'], 'test'),
-            transform=transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                normalize_RAF_Aff
-            ])
-        ),
-        batch_size=cfg['valid_batch_size'], shuffle=False,
-        num_workers=cfg['workers'], pin_memory=True
-    )
+    val_dataset = TestDataset(train=False, transform=transform)
+    # val_dataset = AllTestDataset(train=False, transform=transform)
+    val_loader = DataLoader(dataset=val_dataset, num_workers=cfg['workers'], batch_size=cfg['valid_batch_size'], shuffle=False)
+
+    # val_dataset = TrainDataset(train=False, transform=transform)
+    # val_loader = DataLoader(dataset=val_dataset, num_workers=cfg['workers'], batch_size=cfg['valid_batch_size'], shuffle=True)
+    # val_loader = torch.utils.data.DataLoader(
+    #     dataset=datasets.ImageFolder(
+    #         root=os.path.join(cfg['root_dir'], 'test'),
+    #         transform=transforms.Compose([
+    #             transforms.Resize(256),
+    #             transforms.CenterCrop(224),
+    #             transforms.ToTensor(),
+    #             normalize_RAF_Aff
+    #         ])
+    #     ),
+    #     batch_size=cfg['valid_batch_size'], shuffle=False,
+    #     num_workers=cfg['workers'], pin_memory=True
+    # )
 
     print('[*] Loaded dataset!')
 
@@ -117,14 +141,17 @@ def main(cfg):
         feat_size = 512 #121
         if not cfg['pretrained'] == '':
             model = resnet.resnet18(pretrained=cfg['pretrained'])
-            model.fc = nn.Linear(feat_size, 7)
+            model.conv1 = nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            model.fc = nn.Linear(feat_size, 3)
         else:
             print('[!] model is trained from scratch!')
-            model = resnet.resnet18(num_classes=7, pretrained=cfg['pretrained'])
+            model = resnet.resnet18(num_classes=3, pretrained=cfg['pretrained'])
+            model.conv1 = nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
     else:
         raise NotImplementedError('only working with "resnet18" now! check cfg["arch"]')
-    #model = torch.nn.DataParallel(model).to(device)
+    # model = torch.nn.DataParallel(model, device_ids=[0,1])
     model = model.to(device)
+
     print('[*] Model initialized!')
 
     #learnable loss parameters (center, triplet)
@@ -135,7 +162,7 @@ def main(cfg):
     # ----------------------------------------------
     criterion = {
         'softmax': nn.CrossEntropyLoss().to(device),
-        'center': SparseCenterLoss(7, feat_size).to(device),
+        'center': SparseCenterLoss(3, feat_size).to(device),
         'triplet': TripletLoss(margin = 0.5).to(device)
     }
     optimizer = {
@@ -151,6 +178,10 @@ def main(cfg):
     scheduler_s = torch.optim.lr_scheduler.ExponentialLR(optimizer['softmax'], gamma=0.9)
 
     model, [optimizer['softmax'], optimizer['center'], optimizer['weight']] = amp.initialize(model, [optimizer['softmax'], optimizer['center'], optimizer['weight']], opt_level="O1", verbosity=0)
+    # if torch.cuda.device_count() > 1:
+    #     print("Let's use", torch.cuda.device_count(), "GPUs!")
+    #     # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+    #     model = nn.DataParallel(model,device_ids=[0,1])
 
     # training and evaluation
     # -----------------------
@@ -201,7 +232,7 @@ def main(cfg):
     
     # best valid info
     # ---------------
-    """
+    # """
     print('[>] Best Valid '.ljust(64, '-'))
     stat = (
         f'[+] acc={best_valid["acc"]:.4f}\n'
@@ -211,7 +242,7 @@ def main(cfg):
         f'[+] aucroc={best_valid["aucroc"]:.4f}'
     )
     print(stat)
-    """
+    # """
 
 #plot & save loss, acc png
 def plot_loss(loss_list, epoch_list, mode):
@@ -322,22 +353,60 @@ def train(train_loader, model, criterion, optimizer, epoch, cfg, train_loss_list
     epoch_list.append(epoch)
     train_loss_list.append(losses['total'].avg)
     train_acc_List.append(accs.avg)
-    
+
+def plot_confusion_matrix(label_list, y_pred_list, epoch):
+    pred = y_pred_list
+    confusion_mat = confusion_matrix(label_list, pred)
+    targets = ['P', 'R', 'B']
+    # Visualize confusion matrix
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.matshow(confusion_mat, interpolation='nearest', cmap=plt.cm.Blues, alpha=0.3)
+    for i in range(confusion_mat.shape[0]):
+        for j in range(confusion_mat.shape[1]):
+            ax.text(x=j, y=i, s=confusion_mat[i, j], va='center', ha='center')
+    plt.title('Confusion matrix')
+    # plt.colorbar()
+    # ticks = np.arange(3)
+    # plt.xticks(ticks, ticks)
+    # plt.yticks(ticks, ticks)
+    plt.ylabel('True labels')
+    plt.xlabel('Predicted labels')
+    # plt.show()
+
+    fig_name = 'epoch_' + str(epoch) + '.png'
+    path = os.path.join(cfg['save_path'], 'CM')
+    if not os.path.isdir(path):
+        os.mkdir(path)
+    plt.savefig(path + '/' + fig_name)
+    print('{} is saved'.format(fig_name))
+
+    # Classification report
+    # print('\n', classification_report(label_list, pred, target_names=targets))
+    cls_report_name ='classification_report.txt'
+    path = os.path.join(cfg['save_path'], 'cls_report')
+    if not os.path.isdir(path):
+        os.mkdir(path)
+    with open(path + '/' + cls_report_name, "a+") as f:
+        f.write( 'Epoch_' + str(epoch) + '\n')
+        f.write(classification_report(label_list, pred, target_names=targets)+'\n')
+
 
 def plot_embedding(X, y, epoch, mode):
     plt.style.use('seaborn-paper')
     plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
     plt.rcParams['figure.dpi'] = 300
     theme_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
+    ls = ['P', 'R', 'B']
     x_min, x_max = np.min(X, 0), np.max(X, 0)
     X = (X - x_min) / (x_max - x_min)
 
     fig1 = plt.figure(figsize=(10, 10))
-    for i in range(len(X)): 
-        #colors = COLOR_POOL[y[i]]
-        colors = theme_colors[y[i]]
-        plt.scatter(X[i, 0], X[i, 1], color=colors)
+
+    for i in range(len(ls)):
+        feat = X[y == i]
+        colors = theme_colors[i]
+        plt.scatter(feat[:, 0], feat[:, 1], color=colors, label=ls[i])
+    plt.legend()
     fig_name = 'epoch_' + str(epoch) + '.png'
     if mode == 'tsne':
         path = os.path.join(cfg['save_path'], 'tsne')
@@ -367,7 +436,7 @@ def validate(valid_loader, model, criterion, epoch, cfg, valid_loss_list, valid_
     pca = PCA(n_components=2, iterated_power=3000)
     features_list = []
     label_list = []
-
+    # pred_list = []
     with tqdm(total=int(len(valid_loader.dataset) / cfg['valid_batch_size'])) as pbar:
         with torch.no_grad():
             for i, (images, target) in enumerate(valid_loader):
@@ -407,6 +476,7 @@ def validate(valid_loader, model, criterion, epoch, cfg, valid_loss_list, valid_
     if epoch % 5 == 0:
         features_list = torch.stack(features_list)
         label_list = torch.stack(label_list)
+        plot_confusion_matrix(label_list.cpu().numpy(), torch.cat(y_pred,0).cpu().numpy(), epoch)
         features_tsne = tsne.fit_transform(features_list.detach().cpu().numpy())
         plot_embedding(features_tsne, label_list.detach().cpu().numpy(), epoch, 'tsne')
         pca_result = pca.fit_transform(features_list.detach().cpu().numpy())
@@ -493,6 +563,6 @@ if __name__ == '__main__':
     # -----------------
 
     print('The best valid acc is: ', best_valid)
-    print('\n[*] Fini! '.ljust(64, '-'))
+    print('\n[*] Finish! '.ljust(64, '-'))
     print(f'[!] total time = {timedelta(seconds=end - start)}s')
     sys.stdout.flush()

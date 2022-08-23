@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from torchvision.models.utils import load_state_dict_from_url
-
+# from torchvision.models.utils import load_state_dict_from_url
+from torch.hub import load_state_dict_from_url
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -152,7 +152,10 @@ class ResNet(nn.Module):
         
         # DACL attention network
         self.attention = nn.Sequential(
-            nn.Linear(512 * 7 * 7, 3584),
+            # nn.Linear(512 * 7 * 7, 3584),
+            nn.Linear(100352, 3584),
+            # nn.Linear(524288, 3584),
+
             nn.BatchNorm1d(3584),
             nn.ReLU(inplace=True), 
             nn.Linear(3584, 512),

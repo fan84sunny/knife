@@ -32,12 +32,12 @@ ls = ['P', 'R', 'B']
 dirs = ['train', 'test']
 x = []
 for i, cls in enumerate(ls):
-  data_root = root / cls
-  # os.listdir(data_root)
-  data = os.listdir(data_root)
-  for idx in data:
-    img = root / cls / idx / "LReconRaw.Tif"
-    x.append(img)
+    data_root = root / cls
+    # os.listdir(data_root)
+    data = os.listdir(data_root)
+    for idx in data:
+        img = root / cls / idx / "LWearDepthRaw.Tif"
+        x.append(img)
 
 # 計算 Mean , STD
 image_train = []
@@ -45,33 +45,33 @@ image_test = []
 image_np = []
 image_crop_np = []
 for link in tqdm(x):
-  image = Image.open(link)
-  image_crop400 = np.array(image)[27:][:400]
-  image = np.array(image)[27:][:]
-  if np.min(np.array(image).flatten()) == 0:
-    print('\n有0的連結:', link)
+    image = Image.open(link)
+    image_crop400 = np.array(image)[27:][:400]
+    image = np.array(image)[27:][:]
+    if np.min(np.array(image).flatten()) == 0:
+        print('\n有0的連結:', link)
 
-  image_crop_new = (np.array(image_crop400) - np.min(np.array(image_crop400).flatten()))
-  image_new = (np.array(image) - np.min(np.array(image).flatten()))
-  image_new =image
-  # if np.max(image_new)==247:
-  #   print('\n有247的連結:',link)
-  #   plot_3d(image)
-  #   plot_3d(image_new)
-  #   np.argwhere(image_new == 247)
+    image_crop_new = (np.array(image_crop400) - np.min(np.array(image_crop400).flatten()))
+    image_new = (np.array(image) - np.min(np.array(image).flatten()))
+    image_new = image
+    # if np.max(image_new)==247:
+    #   print('\n有247的連結:',link)
+    #   plot_3d(image)
+    #   plot_3d(image_new)
+    #   np.argwhere(image_new == 247)
 
-  if int(str(link).split('/')[-2]) <= 13:
-    b = 0
-    image_crop_np.append(image_crop_new)
-    image_np.append(image_new)
-    # image_train.append(image_new)
-  elif 13 < int(str(link).split('/')[-2]) <= 18:
-    b = 1
-    image_crop_np.append(image_crop_new)
-    image_np.append(image_new)
-    # image_test.append(image_new)
-  else:
-    continue
+    if int(str(link).split('/')[-2]) <= 15:
+        b = 0
+        image_crop_np.append(image_crop_new)
+        image_np.append(image_new)
+        # image_train.append(image_new)
+    elif 15 < int(str(link).split('/')[-2]) <= 18:
+        b = 1
+        image_crop_np.append(image_crop_new)
+        image_np.append(image_new)
+        # image_test.append(image_new)
+    else:
+        continue
 
 # train_mean = np.mean(image_train.flatten())
 # train_std = np.std(image_train.flatten())

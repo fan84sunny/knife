@@ -11,16 +11,17 @@ class Workspace():
         self.config = {
             # global config
             'log_dir': "logs",
-            'root_dir': "./path/to/fer/dataset/", # 分成trainset和testset
+            'root_dir': "/home/ANYCOLOR2434/knife", # 分成trainset和testset
             'deterministic': False,
-            'seed': 0,
+            'seed': 610410113,
             'workers': 4,
             # training config
             'arch': 'resnet18',
-            'lr': 0.01,
+            'lr': 1e-4, #,0.01
             'momentum': 0.9,
             'weight_decay': 0.0005, #1e-4
-            'batch_size': 256,
+            'batch_size': 64,
+            'img_size': 224,
             'valid_batch_size': 1,
             'epochs': 60,
             'pretrained': "msceleb", #msceleb, imagenet, ARM
