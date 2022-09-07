@@ -10,6 +10,8 @@ siamese-pytorch-master/
 ResidualAttentionNetwork/
 siamese-pytorch-master.zip
 *.pth
+*.png
+logs/
 events.out*
 
 # Created by .ignore support plugin (hsz.mobi)

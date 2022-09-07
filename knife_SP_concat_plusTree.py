@@ -1,4 +1,5 @@
 import os
+import pickle
 import time
 from pathlib import Path
 from matplotlib import pyplot as plt
@@ -8,6 +9,9 @@ import random
 from utils import Logger
 import sys
 from datetime import timedelta, datetime
+from sklearn.metrics import cohen_kappa_score, accuracy_score, confusion_matrix, classification_report
+from sklearn.ensemble import AdaBoostClassifier
+# ExtraTreesRegressor,GradientBoostingRegressor, RandomForestRegressor
 
 from tqdm import tqdm
 import torch
@@ -17,9 +21,11 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 # Models
-import torchvision.models as models
-from models.resnet18_concat_feat import Net
-from vit_pytorch import ViT
+# import torchvision.models as models
+from models.resnet18_concat_feat import ResNet18, ResBlock
+
+# XGBOOST
+import xgboost as xgb
 
 
 def noisy(image, amount=0.004, s_vs_p=0.5, noise_type="SP"):
@@ -70,7 +76,35 @@ def noisy(image, amount=0.004, s_vs_p=0.5, noise_type="SP"):
         gauss = gauss.reshape(row, col)
         noisy = image + image * gauss
         return noisy
+def plot_confusion_matrix(save_path, label_list, y_pred_list):
+    pred = y_pred_list
+    confusion_mat = confusion_matrix(label_list, pred)
+    targets = ['P', 'R', 'B']
+    # Visualize confusion matrix
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.matshow(confusion_mat, interpolation='nearest', cmap=plt.cm.Blues, alpha=0.3)
+    for i in range(confusion_mat.shape[0]):
+        for j in range(confusion_mat.shape[1]):
+            ax.text(x=j, y=i, s=confusion_mat[i, j], va='center', ha='center')
+    plt.title('Confusion matrix')
+    # plt.colorbar()
+    # ticks = np.arange(3)
+    # plt.xticks(ticks, ticks)
+    # plt.yticks(ticks, ticks)
+    plt.ylabel('True labels')
+    plt.xlabel('Predicted labels')
+    # plt.show()
 
+    fig_name = 'confusion matrix.png'
+
+    plt.savefig(save_path + '/' + fig_name)
+    print('{} is saved'.format(fig_name))
+
+    # Classification report
+    # print('\n', classification_report(label_list, pred, target_names=targets))
+    cls_report_name = 'classification_report.txt'
+    with open(save_path + '/' + cls_report_name, "a+") as f:
+        f.write(classification_report(label_list, pred, target_names=targets)+'\n')
 
 class TrainDataset(Dataset):
     def __init__(self, train=True, transform=None):
@@ -149,7 +183,7 @@ def visualization(save_path, train, test, title):
     plt.xlabel('Epochs')
     plt.ylabel(title)
     plt.title(title)
-    plt.savefig(os.path.join(save_path, f'{title}-resnet50-xpre.png'))
+    plt.savefig(os.path.join(save_path, f'{title}-resnet18-xpre.png'))
     # plt.show()
 
 
@@ -175,12 +209,14 @@ def print_cfg(epochs, batch, lr, save_path, seed, img_size):
     print('\timg_size: ', img_size)
 
 
-def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
+def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=256):
+    print("without initialization")
+
     # set seed
     seed = 610410113
     set_seed(seed)
     print_cfg(epochs, batch_size, lr, save_path, seed, img_size)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     print('[>] Loading dataset '.ljust(64, '-'))
     transform = transforms.Compose([
         transforms.Resize([img_size, img_size]),
@@ -188,9 +224,10 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
         # transforms.RandomVerticalFlip(),
         # transforms.RandomRotation(20),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[223.711644], std=[52.5672336])
+        # transforms.Normalize(mean=[1.548061], std=[2.665095]),
+        transforms.Normalize(mean=[223.711644], std=[52.5672336]),
     ])
-    print("transforms.Normalize(mean=[223.711644], std=[52.5672336]")
+    print("transforms.Normalize(mean=[223.711644], std=[52.5672336])")
     # train
     train_dataset = TrainDataset(train=True, transform=transform)
     val_dataset = TrainDataset(train=False, transform=transform)
@@ -201,7 +238,10 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
     print('[>] Model '.ljust(64, '-'))
     # MODEL
     ## model: ResNet18
-    # model = ResNet18(ResBlock, num_classes=3).to(device)
+    model = ResNet18(ResBlock, num_classes=3).to(device)
+    ### ResNet18: modified conv1:3*3 without maxpool
+    print(model)
+
 
     ## model: ResNet18 Attention
     # model = ResNet18_Attn(ResBlock, num_classes=3).to(device)
@@ -212,36 +252,8 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
     # resnet50.maxpool = nn.Identity()
     # model = Net(resnet50)
 
-    ## model: ViT
-    patch_size = 32
-    feature_dim = 768
-    layer = 12
-    heads = 12
-    mlp_dim = 3072
-    print("[>] ViT parameter: ",)
-    print("\tpatch_size: ", patch_size,)
-    print("\tfeature_dim: ", feature_dim,)
-    print("\tlayer: ", layer,)
-    print("\theads: ", heads,)
-    print("\theads: ", mlp_dim)
-
-    ViT_model = ViT(
-        image_size=img_size,
-        patch_size=patch_size,
-        num_classes=3,
-        dim=feature_dim,
-        channels=1,
-        depth=layer,
-        heads=heads,
-        mlp_dim=mlp_dim,
-        dropout=0.1,
-        emb_dropout=0.1
-    )
-    model = ViT_model
-
     print('[*] Model initialized!')
     model = model.to(device)
-    print(model)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
@@ -249,7 +261,8 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
     train_loss_reg, train_acc_reg = [], []
     test_loss_reg, test_acc_reg = [], []
     best = 100
-    best_acc, best_loss = 0.0, 0.0
+    # best_acc = 0.0
+    # best_loss = 0.0
     print('[>] Begin Training '.ljust(64, '-'))
 
     for epoch in range(epochs):
@@ -261,12 +274,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
             labels = labels.to(device)
             inputs_flip = inputs_flip.to(device)
             inputs = inputs.to(device)
-
-            # resnet model
-            # _,outputs = model(inputs, inputs_flip)
-
-            # ViT model
-            outputs = model(inputs)
+            feats, outputs = model(inputs, inputs_flip)
             loss = criterion(outputs, labels)
 
             optimizer.zero_grad()
@@ -285,12 +293,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
                 inputs_flip = inputs_flip.to(device)
                 inputs = inputs.to(device)
                 labels = labels.to(device)
-                # resnet model
-                # _,outputs = model(inputs, inputs_flip)
-
-                # ViT model
-                outputs = model(inputs)
-
+                _, outputs = model(inputs, inputs_flip)
                 loss = criterion(outputs, labels)
                 preds = torch.argmax(outputs, dim=1)
                 val_loss += loss.item()
@@ -312,7 +315,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
             best = val_loss
             best_acc1 = val_acc
 
-            torch.save(model, os.path.join(save_path, f'resnet50_xpre_concat_SP.pth'))
+            torch.save(model, os.path.join(save_path, f'resnet18_xpre_concat_SP.pth'))
         # if val_acc < best_acc:
         #     best_loss = val_loss
         #     best_acc2 = val_acc
@@ -329,7 +332,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
 
     visualization(save_path, train_loss_reg, test_loss_reg, 'Loss')
     visualization(save_path, train_acc_reg, test_acc_reg, 'Acc')
-    model = torch.load(os.path.join(save_path, f'resnet50_xpre_concat_SP.pth'), map_location=device)
+    model = torch.load(os.path.join(save_path, f'resnet18_xpre_concat_SP.pth'), map_location=device)
     # visual the test set result
     t_transform = transforms.Compose([
         transforms.Resize([img_size, img_size]),
@@ -342,6 +345,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
     ])
     t_dataset = TestDataset(train=False, transform=t_transform)
     t_loader = DataLoader(dataset=t_dataset, batch_size=1, shuffle=False)
+    dog_probs = []
     model.eval()
     with torch.no_grad():
         ls = ['P', 'R', 'B']
@@ -351,11 +355,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
             data_flip = data_flip.to(device)
             data = data.to(device)
             fileid = fileid.to(device)
-            # _,output = model(data, data_flip)
-
-            # ViT model
-            output = model(data)
-
+            _, output = model(data, data_flip)
             preds = torch.argmax(output, dim=1)
             total += 1
             if preds != fileid.data:
@@ -366,14 +366,118 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
                 print('預測:', ls[preds])
                 # print('data unsqueeze:', torch.squeeze(data))
                 # print('data.data[[]]:',data.data[[]])
-
                 # new_img_PIL = transforms.ToPILImage()(data.data[[]])
-                # here is show image
                 # new_img_PIL = transforms.ToPILImage()(torch.squeeze(data))
                 # plt.imshow(new_img_PIL)
                 # plt.show()
 
-                # plot_3d(data.numpy())
+
+def get_extracted_data(save_path, batch_size=8, img_size=256):
+    seed = 610410113
+    set_seed(seed)
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    model = torch.load(os.path.join(save_path, f'resnet18_xpre_concat_SP.pth'), map_location=device)
+    transform = transforms.Compose([
+        transforms.Resize([img_size, img_size]),
+        # transforms.RandomHorizontalFlip(),
+        # transforms.RandomVerticalFlip(),
+        # transforms.RandomRotation(20),
+        transforms.ToTensor(),
+        # transforms.Normalize(mean=[1.548061], std=[2.665095]),
+        transforms.Normalize(mean=[223.711644], std=[52.5672336])
+    ])
+
+    train_dataset = TrainDataset(train=True, transform=transform)
+    train_loader = DataLoader(dataset=train_dataset, num_workers=2, batch_size=batch_size, shuffle=True)
+
+    t_dataset = TestDataset(train=False, transform=transform)
+    t_loader = DataLoader(dataset=t_dataset, num_workers=2, batch_size=batch_size, shuffle=False)
+
+
+    with torch.no_grad():
+        for bi, (inputs, inputs_flip, labels) in enumerate(tqdm(train_loader)):
+            inputs_flip = inputs_flip.to(device)
+            inputs = inputs.to(device)
+            feats, outputs = model(inputs, inputs_flip)
+            labels = labels.numpy()
+            if bi == 0:
+                train_features = feats.cpu().detach().squeeze(0).numpy()
+                train_targets = labels
+            else:
+                train_features = np.concatenate([train_features, feats.cpu().detach().squeeze(0).numpy()], axis=0)
+                train_targets = np.concatenate([train_targets, labels], axis=0)
+            # train_feats = np.concatenate([train_feats, feats.cpu().detach().squeeze(0).numpy()], axis=0)
+            # print("train_feats shape:",train_feats.shape)
+            # train_labels = np.concatenate((train_labels, labels))
+            # print("train_labels shape:",train_labels.shape)
+
+
+        for bi, (data, data_flip, fileid) in enumerate(tqdm(t_loader)):
+            data_flip = data_flip.to(device)
+            data = data.to(device)
+            feats, output = model(data, data_flip)
+            labels = fileid.numpy()
+            if bi == 0:
+                test_features = feats.cpu().detach().squeeze(0).numpy()
+                test_targets = labels
+            else:
+                test_features = np.concatenate([test_features, feats.cpu().detach().squeeze(0).numpy()], axis=0)
+                test_targets = np.concatenate([test_targets, labels], axis=0)
+    print('feat size:',train_features.shape)
+    print('feat size:',test_features.shape)
+    print('labels size:', train_targets.shape)
+    print('labels size:', test_targets.shape)
+    return train_features, train_targets, test_features, test_targets
+def train_test_ada(save_path, train_feats, train_labels, test_feats, test_labels):
+    ada = AdaBoostClassifier(n_estimators=20)
+    ada_model_1 = ada.fit(train_feats,train_labels)
+    prediction = ada_model_1.predict(test_feats)
+    Val_acc = ada_model_1.score(test_feats,test_labels)
+    plot_confusion_matrix(save_path, test_labels.reshape(-1), prediction)
+    print("Accuarcy: ", Val_acc)
+    ### model evaluate
+    print("Cohen Kappa quadratic score: ",
+          cohen_kappa_score(test_labels, prediction, weights="quadratic"))
+    accuracy = accuracy_score(test_labels, prediction)
+    print("Accuarcy: %.2f%%" % (accuracy * 100.0))
+    plt.savefig(os.path.join(save_path, 'feature_import-resnet18-xpre-AdaBoostClassifier.png'))
+    pickle.dump(ada_model_1, open(os.path.join(save_path, "ada_model_1"), "wb"))
+
+def train_test_xgb(save_path, train_feats, train_labels, test_feats, test_labels):
+    XGBOOST_PARAM = {
+        "random_state": 42,
+        'objective': 'multi:softmax',
+        "num_class": 3,
+        "n_estimators": 200,
+        "eval_metric": "mlogloss"
+    }
+    ### fit model for train data
+    xgb_model_1 = xgb.XGBClassifier(**XGBOOST_PARAM)
+    xgb_model_1 = xgb_model_1.fit(train_feats, train_labels.reshape(-1),
+                                  eval_set=[(test_feats, test_labels.reshape(-1))],
+                                  early_stopping_rounds=20,
+                                  verbose=False)
+    ### make prediction for test data
+    prediction = xgb_model_1.predict(test_feats)
+
+    xgb_model_2 = xgb.XGBClassifier(**XGBOOST_PARAM)
+    xgb_model_2 = xgb_model_2.fit(test_feats, test_labels.reshape(-1),
+                                  eval_set=[(train_feats, train_labels.reshape(-1))],
+                                  early_stopping_rounds=20,
+                                  verbose=False)
+    plot_confusion_matrix(save_path, test_labels.reshape(-1), prediction)
+    ### model evaluate
+    print("Cohen Kappa quadratic score: ",
+          cohen_kappa_score(test_labels, prediction, weights="quadratic"))
+    accuracy = accuracy_score(test_labels, prediction)
+    print("Accuarcy: %.2f%%" % (accuracy * 100.0))
+    ### plot feature importance
+    xgb.plot_importance(xgb_model_1, max_num_features=12,title="important features", xlabel='scores', ylabel='features')
+    plt.savefig(os.path.join(save_path, 'feature_import-resnet18-xpre-tree.png'))
+    # plt.show()
+
+    pickle.dump(xgb_model_1, open(os.path.join(save_path, "xgb_model_1"), "wb"))
+    pickle.dump(xgb_model_2, open(os.path.join(save_path, "xgb_model_2"), "wb"))
 
 
 if __name__ == '__main__':
@@ -381,14 +485,19 @@ if __name__ == '__main__':
     save_path = os.path.join("/home/ANYCOLOR2434/knife/logs", current_time)
 
     # setting up writers
-    sys.stdout = Logger(os.path.join(save_path, 'knife_SP_concat.log'))
-
+    sys.stdout = Logger(os.path.join(save_path, 'knife_SP_concat_plusTree.log'))
+    img_size = 256
     # -----------------
     start = time.time()
-    train(save_path, img_size=256)
-    end = time.time()
+    train(save_path,img_size=img_size)
+
     # -----------------
 
+    train_feats, train_labels, test_feats, test_labels = get_extracted_data(save_path, img_size=img_size)
+    # train_test_xgb(save_path, train_feats, train_labels, test_feats, test_labels)
+    train_test_ada(save_path, train_feats, train_labels, test_feats, test_labels)
+    # -----------------
+    end = time.time()
     # SteelDataset()
 
     print('\n[*] Finish! '.ljust(64, '-'))

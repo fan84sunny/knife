@@ -103,7 +103,7 @@ def set_seed(seed):
     torch.use_deterministic_algorithms(True)
 
 
-def train(epochs=50, lr=1e-5, batch_size=4):
+def train(epochs=50, lr=1e-5, batch_size=8):
     # set seed
     seed = 610410113
     set_seed(seed)
