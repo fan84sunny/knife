@@ -50,6 +50,7 @@ class ResNet18(nn.Module):
         self.pool = nn.AdaptiveAvgPool2d((1,1))
         # self.fc = nn.Linear(1024, num_classes)
         self.fc = nn.Linear(102400, num_classes)
+        # self.fc = nn.Linear(451584, num_classes)
 
         # # initialization
         # for m in self.modules():

@@ -1,3 +1,4 @@
+import math
 import os
 import time
 from pathlib import Path
@@ -17,9 +18,39 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 # Models
-import torchvision.models as models
-from models.resnet18_concat_feat import Net
-from vit_pytorch import ViT
+# import torchvision.models as models
+# from vit_pytorch import ViT
+from models.resnet18_concat_feat import ResNet18, ResBlock
+from torch import Tensor
+
+
+def noisy_tensor(image: Tensor, amount: Tensor, s_vs_p: Tensor, noise_type="SP"):
+    if noise_type == "SP":
+        mask = torch.ones_like(image) * -1
+        # mask = mask.detach().numpy()
+        row, col = mask.shape
+        row = torch.tensor([row])
+        col = torch.tensor([col])
+        # Salt mode
+        num_salt = torch.ceil(amount * row * col * s_vs_p)
+        coords = [torch.randint(0, i - 1, (int(num_salt),))
+                  for i in mask.shape]
+        mask[tuple(coords)] = 1
+
+        # Pepper mode
+        num_pepper = torch.ceil(amount * row * col * (1 - s_vs_p))
+        coords = [torch.randint(0, i - 1, (int(num_pepper),))
+                  for i in mask.shape]
+        mask[tuple(coords)] = 0
+
+        # Onto image
+        # mask = torch.from_numpy(mask).detach()
+        # print("原圖:\n",image)
+        # print("mask:\n",mask)
+        image = torch.where(mask == 1, mask, image)
+        image = torch.where(mask == 0, mask, image)
+        # print("結果:\n")
+        return image
 
 
 def noisy(image, amount=0.004, s_vs_p=0.5, noise_type="SP"):
@@ -37,13 +68,15 @@ def noisy(image, amount=0.004, s_vs_p=0.5, noise_type="SP"):
     #                 n is uniform noise with specified mean & variance.
     if noise_type == "gauss":
         row, col = image.shape
+        out = np.copy(image)
         mean = 0
         var = 0.1
         sigma = var ** 0.5
         gauss = np.random.normal(mean, sigma, (row, col))
         gauss = gauss.reshape(row, col)
-        noisy = image + gauss
+        noisy = out + gauss
         return noisy
+
     elif noise_type == "SP":
         row, col = image.shape
         out = np.copy(image)
@@ -141,6 +174,25 @@ class TestDataset(Dataset):
         return image, image_flip, self.y[index]
 
 
+def adjust_learning_rate(optimizer, init_lr, epoch, num_epochs, warmup_epochs=10, warmup_lr=1e-6, final_lr=1e-6, warmup=False):
+    final_lr = float(final_lr)
+
+    # Setting  schedule function
+    if warmup:
+        warmup_epochs = warmup_epochs
+        warmup_lr = warmup_lr
+        if epoch < warmup_epochs:
+            cur_lr = warmup_lr + (init_lr - warmup_lr) * ((epoch + 1) / warmup_epochs)
+        else:
+            cur_lr = final_lr + (init_lr - final_lr) * 0.5 * (
+                    1. + math.cos(math.pi * (epoch - warmup_epochs) / (num_epochs - warmup_epochs)))
+    else:
+        cur_lr = final_lr + (init_lr - final_lr) * 0.5 * (1. + math.cos(math.pi * epoch / num_epochs))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = cur_lr
+    return cur_lr
+
+
 def visualization(save_path, train, test, title):
     plt.figure()
     plt.plot(train, 'r', label="Train")
@@ -149,7 +201,7 @@ def visualization(save_path, train, test, title):
     plt.xlabel('Epochs')
     plt.ylabel(title)
     plt.title(title)
-    plt.savefig(os.path.join(save_path, f'{title}-resnet50-xpre.png'))
+    plt.savefig(os.path.join(save_path, f'{title}-resnet18-xpre.png'))
     # plt.show()
 
 
@@ -165,7 +217,7 @@ def set_seed(seed):
     torch.use_deterministic_algorithms(True)
 
 
-def print_cfg(epochs, batch, lr, save_path, seed, img_size):
+def print_cfg(epochs, batch, lr, save_path, seed, img_size, warm_up):
     print('[>] Configuration '.ljust(64, '-'))
     print('\tTotal epoch: ', epochs)
     print('\tBatch size: ', batch)
@@ -173,13 +225,18 @@ def print_cfg(epochs, batch, lr, save_path, seed, img_size):
     print('\tsave path: ', save_path)
     print('\tseed: ', seed)
     print('\timg_size: ', img_size)
+    print('[>] Warmup Setting '.ljust(64, '-'))
+    print('\tinit_lr: ', 0.01)
+    print('\twarmup_epochs: ', 10)
+    print('\twarmup_lr: ', 1e-6)
+    print('\tfinal_lr: ', 1e-6)
+    print('\twarmup: ', warm_up)
 
-
-def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
+def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224, warm_up=False):
     # set seed
     seed = 610410113
     set_seed(seed)
-    print_cfg(epochs, batch_size, lr, save_path, seed, img_size)
+    print_cfg(epochs, batch_size, lr, save_path, seed, img_size, warm_up)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print('[>] Loading dataset '.ljust(64, '-'))
     transform = transforms.Compose([
@@ -201,7 +258,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
     print('[>] Model '.ljust(64, '-'))
     # MODEL
     ## model: ResNet18
-    # model = ResNet18(ResBlock, num_classes=3).to(device)
+    model = ResNet18(ResBlock, num_classes=3).to(device)
 
     ## model: ResNet18 Attention
     # model = ResNet18_Attn(ResBlock, num_classes=3).to(device)
@@ -213,31 +270,31 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
     # model = Net(resnet50)
 
     ## model: ViT
-    patch_size = 32
-    feature_dim = 768
-    layer = 12
-    heads = 12
-    mlp_dim = 3072
-    print("[>] ViT parameter: ",)
-    print("\tpatch_size: ", patch_size,)
-    print("\tfeature_dim: ", feature_dim,)
-    print("\tlayer: ", layer,)
-    print("\theads: ", heads,)
-    print("\theads: ", mlp_dim)
+    # patch_size = 32
+    # feature_dim = 768
+    # layer = 12
+    # heads = 12
+    # mlp_dim = 3072
+    # print("[>] ViT parameter: ",)
+    # print("\tpatch_size: ", patch_size,)
+    # print("\tfeature_dim: ", feature_dim,)
+    # print("\tlayer: ", layer,)
+    # print("\theads: ", heads,)
+    # print("\theads: ", mlp_dim)
 
-    ViT_model = ViT(
-        image_size=img_size,
-        patch_size=patch_size,
-        num_classes=3,
-        dim=feature_dim,
-        channels=1,
-        depth=layer,
-        heads=heads,
-        mlp_dim=mlp_dim,
-        dropout=0.1,
-        emb_dropout=0.1
-    )
-    model = ViT_model
+    # ViT_model = ViT(
+    #     image_size=img_size,
+    #     patch_size=patch_size,
+    #     num_classes=3,
+    #     dim=feature_dim,
+    #     channels=1,
+    #     depth=layer,
+    #     heads=heads,
+    #     mlp_dim=mlp_dim,
+    #     dropout=0.1,
+    #     emb_dropout=0.1
+    # )
+    # model = ViT_model
 
     print('[*] Model initialized!')
     model = model.to(device)
@@ -245,11 +302,12 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+
     scheduler = ReduceLROnPlateau(optimizer, mode='min', verbose=1, patience=3, factor=0.5)
     train_loss_reg, train_acc_reg = [], []
     test_loss_reg, test_acc_reg = [], []
     best = 100
-    best_acc, best_loss = 0.0, 0.0
+    # best_acc, best_loss = 0.0, 0.0
     print('[>] Begin Training '.ljust(64, '-'))
 
     for epoch in range(epochs):
@@ -257,16 +315,19 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
         print(f'\nEpoch: {epoch + 1}/{epochs}')
         print('-' * len(f'Epoch: {epoch + 1}/{epochs}'))
         model.train()
+
+
         for inputs, inputs_flip, labels in tqdm(train_loader):
+            adjust_learning_rate(optimizer, 0.01, epoch, epochs, warmup_epochs=10, warmup_lr=1e-6, final_lr=1e-6, warmup=warm_up)
             labels = labels.to(device)
             inputs_flip = inputs_flip.to(device)
             inputs = inputs.to(device)
 
             # resnet model
-            # _,outputs = model(inputs, inputs_flip)
+            _, outputs = model(inputs, inputs_flip)
 
             # ViT model
-            outputs = model(inputs)
+            # outputs = model(inputs)
             loss = criterion(outputs, labels)
 
             optimizer.zero_grad()
@@ -286,10 +347,10 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
                 inputs = inputs.to(device)
                 labels = labels.to(device)
                 # resnet model
-                # _,outputs = model(inputs, inputs_flip)
+                _, outputs = model(inputs, inputs_flip)
 
                 # ViT model
-                outputs = model(inputs)
+                # outputs = model(inputs)
 
                 loss = criterion(outputs, labels)
                 preds = torch.argmax(outputs, dim=1)
@@ -312,7 +373,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
             best = val_loss
             best_acc1 = val_acc
 
-            torch.save(model, os.path.join(save_path, f'resnet50_xpre_concat_SP.pth'))
+            torch.save(model, os.path.join(save_path, f'resnet18_xpre_concat_SP.pth'))
         # if val_acc < best_acc:
         #     best_loss = val_loss
         #     best_acc2 = val_acc
@@ -329,7 +390,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
 
     visualization(save_path, train_loss_reg, test_loss_reg, 'Loss')
     visualization(save_path, train_acc_reg, test_acc_reg, 'Acc')
-    model = torch.load(os.path.join(save_path, f'resnet50_xpre_concat_SP.pth'), map_location=device)
+    model = torch.load(os.path.join(save_path, f'resnet18_xpre_concat_SP.pth'), map_location=device)
     # visual the test set result
     t_transform = transforms.Compose([
         transforms.Resize([img_size, img_size]),
@@ -351,10 +412,10 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224):
             data_flip = data_flip.to(device)
             data = data.to(device)
             fileid = fileid.to(device)
-            # _,output = model(data, data_flip)
+            _, output = model(data, data_flip)
 
             # ViT model
-            output = model(data)
+            # output = model(data)
 
             preds = torch.argmax(output, dim=1)
             total += 1
@@ -385,7 +446,7 @@ if __name__ == '__main__':
 
     # -----------------
     start = time.time()
-    train(save_path, img_size=256)
+    train(save_path, epochs=50, lr=1e-5, batch_size=8, img_size=256, warm_up=False)
     end = time.time()
     # -----------------
 
