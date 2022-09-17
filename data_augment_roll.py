@@ -21,7 +21,9 @@ set_seed(seed)
 # 擴增資料
 root = Path('/home/ANYCOLOR2434/knife', 'Batch1_NEW')
 ls = ['P', 'R', 'B']
-dirs = ['train', 'test']
+dirs = ['train',  'test']
+
+# dirs = ['_train', '_val', '_test']
 x = []
 for i, cls in enumerate(ls):
     data_root = root / cls
@@ -47,8 +49,7 @@ for link in tqdm(x):
         b = 0
     elif 13 < int(str(link).split('/')[-2]) <= 18:
         b = 1
-    else:
-        continue
+    else: continue
     angel = 20
     for j in range(1, 51):
         img_aug = np.roll(np.array(image, dtype=float), shift=angel * j, axis=1)

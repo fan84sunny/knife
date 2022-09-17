@@ -264,7 +264,7 @@ def compute_tsne_PCA(save_path, features_list, label_list):
 
 if __name__ == '__main__':
     current_time = datetime.now().strftime('%b%d_%H-%M-%S') + '_' + 'feats_visual'
-    model_path = '/home/ANYCOLOR2434/knife/logs/Aug27_00-45-48_best/resnet18_xpre_concat_SP.pth'
+    model_path = '/logs/Aug27_00-45-48_best_after_forgotAdd/resnet18_xpre_concat_SP.pth'
     save_path = os.path.join("/home/ANYCOLOR2434/knife/logs", current_time)
 
     # setting up writers

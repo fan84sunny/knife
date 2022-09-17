@@ -105,6 +105,20 @@ def noisy(image, amount=0.004, s_vs_p=0.5, noise_type="SP"):
         return noisy
 
 
+def print_dataset_statistics(TrainDataset, ValDataset, TestDataset):
+    num_train = TrainDataset.__len__()
+    num_Val = ValDataset.__len__()
+    num_Test = TestDataset.__len__()
+    print("[>] Dataset statistics:")
+    print("  ------------------------------------------------")
+    print("  subset   | # cls | # orig images | # All images")
+    print("  ------------------------------------------------")
+    print("  train    | {:5d} | {:12d} | {:12d}".format(3, int(num_train / 51), num_train))
+    print("  val      | {:5d} | {:12d} | {:12d}".format(3, int(num_Val / 51), num_Val))
+    print("  test     | {:5d} | {:12d} | {:12d}".format(3, int(num_Test), num_Test))
+    print("  ------------------------------------------------")
+
+
 class TrainDataset(Dataset):
     def __init__(self, train=True, transform=None):
         self.x, self.y = [], []
@@ -113,6 +127,8 @@ class TrainDataset(Dataset):
         root = Path('/home/ANYCOLOR2434/knife')
         ls = ['P', 'R', 'B']
         dirs = ['train', 'test']
+        # dirs = ['_train', '_val', '_test']
+
         if train == True:
             b = 0
         else:
@@ -134,7 +150,7 @@ class TrainDataset(Dataset):
         image = Image.open(self.x[index])
         if self.transform:
             image = Image.fromarray(np.array(image, dtype="float64"))
-            if np.random.randint(1, 10) % 2 == 1 & self.train:
+            if np.random.randint(1, 10) % 2 == 1 and self.train:
                 image_np = noisy(np.array(image, dtype="float64"), amount=0.004, s_vs_p=0.5, noise_type="SP")
                 image = Image.fromarray(image_np)
             image_flip = self.transform(transforms.RandomHorizontalFlip(p=1)(image))
@@ -150,6 +166,8 @@ class TestDataset(Dataset):
         root = Path('/home/ANYCOLOR2434/knife')
         ls = ['P', 'R', 'B']
         dirs = ['train', 'test']
+        # dirs = ['_train', '_val', '_test']
+
         if train == True:
             b = 0
         else:
@@ -174,7 +192,8 @@ class TestDataset(Dataset):
         return image, image_flip, self.y[index]
 
 
-def adjust_learning_rate(optimizer, init_lr, epoch, num_epochs, warmup_epochs=10, warmup_lr=1e-6, final_lr=1e-6, warmup=False):
+def adjust_learning_rate(optimizer, init_lr, epoch, num_epochs, warmup_epochs=10, warmup_lr=1e-6, final_lr=1e-6,
+                         warmup=False):
     final_lr = float(final_lr)
 
     # Setting  schedule function
@@ -187,6 +206,7 @@ def adjust_learning_rate(optimizer, init_lr, epoch, num_epochs, warmup_epochs=10
             cur_lr = final_lr + (init_lr - final_lr) * 0.5 * (
                     1. + math.cos(math.pi * (epoch - warmup_epochs) / (num_epochs - warmup_epochs)))
     else:
+        # cosine decay
         cur_lr = final_lr + (init_lr - final_lr) * 0.5 * (1. + math.cos(math.pi * epoch / num_epochs))
     for param_group in optimizer.param_groups:
         param_group['lr'] = cur_lr
@@ -196,7 +216,7 @@ def adjust_learning_rate(optimizer, init_lr, epoch, num_epochs, warmup_epochs=10
 def visualization(save_path, train, test, title):
     plt.figure()
     plt.plot(train, 'r', label="Train")
-    plt.plot(test, 'b', label="Test")
+    plt.plot(test, 'b', label="Val")
     plt.legend()
     plt.xlabel('Epochs')
     plt.ylabel(title)
@@ -226,11 +246,12 @@ def print_cfg(epochs, batch, lr, save_path, seed, img_size, warm_up):
     print('\tseed: ', seed)
     print('\timg_size: ', img_size)
     print('[>] Warmup Setting '.ljust(64, '-'))
-    print('\tinit_lr: ', 0.01)
+    print('\tinit_lr: ', 0.02)
     print('\twarmup_epochs: ', 10)
     print('\twarmup_lr: ', 1e-6)
     print('\tfinal_lr: ', 1e-6)
     print('\twarmup: ', warm_up)
+
 
 def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224, warm_up=False):
     # set seed
@@ -247,12 +268,25 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224, warm_up=Fal
         transforms.ToTensor(),
         transforms.Normalize(mean=[223.711644], std=[52.5672336])
     ])
+    t_transform = transforms.Compose([
+        transforms.Resize([img_size, img_size]),
+        # transforms.RandomHorizontalFlip(),
+        # transforms.RandomVerticalFlip(),
+        # transforms.RandomRotation(20),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[223.711644], std=[52.5672336]),
+        # transforms.Normalize(mean=[1.548061], std=[2.665095]),
+    ])
     print("transforms.Normalize(mean=[223.711644], std=[52.5672336]")
     # train
     train_dataset = TrainDataset(train=True, transform=transform)
     val_dataset = TrainDataset(train=False, transform=transform)
     train_loader = DataLoader(dataset=train_dataset, num_workers=2, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(dataset=val_dataset, num_workers=2, batch_size=batch_size, shuffle=True)
+    t_dataset = TestDataset(train=False, transform=t_transform)
+    t_loader = DataLoader(dataset=t_dataset, batch_size=1, shuffle=False)
+    print_dataset_statistics(train_dataset, val_dataset, t_dataset)
+
     print('[*] Loaded dataset!')
 
     print('[>] Model '.ljust(64, '-'))
@@ -316,9 +350,9 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224, warm_up=Fal
         print('-' * len(f'Epoch: {epoch + 1}/{epochs}'))
         model.train()
 
-
         for inputs, inputs_flip, labels in tqdm(train_loader):
-            adjust_learning_rate(optimizer, 0.01, epoch, epochs, warmup_epochs=10, warmup_lr=1e-6, final_lr=1e-6, warmup=warm_up)
+            # adjust_learning_rate(optimizer, epoch=epoch, num_epochs=epochs, init_lr=0.02, warmup_epochs=10,
+            #                      warmup_lr=1e-6, final_lr=1e-6, warmup=warm_up)
             labels = labels.to(device)
             inputs_flip = inputs_flip.to(device)
             inputs = inputs.to(device)
@@ -392,17 +426,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224, warm_up=Fal
     visualization(save_path, train_acc_reg, test_acc_reg, 'Acc')
     model = torch.load(os.path.join(save_path, f'resnet18_xpre_concat_SP.pth'), map_location=device)
     # visual the test set result
-    t_transform = transforms.Compose([
-        transforms.Resize([img_size, img_size]),
-        # transforms.RandomHorizontalFlip(),
-        # transforms.RandomVerticalFlip(),
-        # transforms.RandomRotation(20),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[223.711644], std=[52.5672336]),
-        # transforms.Normalize(mean=[1.548061], std=[2.665095]),
-    ])
-    t_dataset = TestDataset(train=False, transform=t_transform)
-    t_loader = DataLoader(dataset=t_dataset, batch_size=1, shuffle=False)
+
     model.eval()
     with torch.no_grad():
         ls = ['P', 'R', 'B']
@@ -446,7 +470,7 @@ if __name__ == '__main__':
 
     # -----------------
     start = time.time()
-    train(save_path, epochs=50, lr=1e-5, batch_size=8, img_size=256, warm_up=False)
+    train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=256, warm_up=False)
     end = time.time()
     # -----------------
 
