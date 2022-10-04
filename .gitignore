@@ -7,6 +7,7 @@ model_save/
 test/
 train/
 _test/
+_test_*/
 _train/
 _val/
 siamese-pytorch-master/
