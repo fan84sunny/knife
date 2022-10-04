@@ -131,3 +131,7 @@ class Net(nn.Module):
         out = self.fc(feat)
         return feat, out
 #####
+if __name__ == '__main__':
+    # resnet50
+    model = ResNet18(ResBlock, num_classes=3)
+    print(model)

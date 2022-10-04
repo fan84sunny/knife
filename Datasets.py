@@ -1,10 +1,42 @@
 import glob
 import os
 from pathlib import Path
+
+import torch
 from PIL import Image
 import numpy as np
+from torch import Tensor
 from torchvision import transforms
 from torch.utils.data import Dataset
+
+
+def noisy_tensor(image: Tensor, amount: Tensor, s_vs_p: Tensor, noise_type="SP"):
+    if noise_type == "SP":
+        mask = torch.ones_like(image) * -1
+        # mask = mask.detach().numpy()
+        row, col = mask.shape
+        row = torch.tensor([row])
+        col = torch.tensor([col])
+        # Salt mode
+        num_salt = torch.ceil(amount * row * col * s_vs_p)
+        coords = [torch.randint(0, i - 1, (int(num_salt),))
+                  for i in mask.shape]
+        mask[tuple(coords)] = 1
+
+        # Pepper mode
+        num_pepper = torch.ceil(amount * row * col * (1 - s_vs_p))
+        coords = [torch.randint(0, i - 1, (int(num_pepper),))
+                  for i in mask.shape]
+        mask[tuple(coords)] = 0
+
+        # Onto image
+        # mask = torch.from_numpy(mask).detach()
+        # print("原圖:\n",image)
+        # print("mask:\n",mask)
+        image = torch.where(mask == 1, mask, image)
+        image = torch.where(mask == 0, mask, image)
+        # print("結果:\n")
+        return image
 
 def noisy(image, amount=0.004, s_vs_p=0.5, noise_type="SP"):
     # Parameters
@@ -131,7 +163,7 @@ class TestDataset(Dataset):
         # return image, image_flip, self.y[index]
 
 
-class AllTestDataset(Dataset):
+class Test15Dataset(Dataset):
     def __init__(self, train=False, transform=None):
         self.x, self.y = [], []
         self.train = train
@@ -173,4 +205,42 @@ class AllTestDataset(Dataset):
         return image, self.y[index]
         # return image, image_flip, self.y[index]
 
+
+class ALLTestDataset(Dataset):
+    def __init__(self, train=False, transform=None):
+        print('All test Dataset:P 5 張、R 17 張、B 33 張')
+
+        self.x, self.y = [], []
+        self.train = train
+        self.transform = transform
+
+        root = Path('/home/ANYCOLOR2434/knife', 'Batch1_NEW')
+        ls = ['P', 'R', 'B']
+        # dirs = ['_train', '_val', '_test']
+        # for i, cls in enumerate(ls):
+        #     data_root = root / cls
+        #     # os.listdir(data_root)
+        #     data = os.listdir(data_root)
+        #     for idx in data:
+        #         img = root / cls / idx / "LWearDepthRaw.Tif"
+        #         x.append(img)
+        for i, cls in enumerate(ls):
+            data_root = root / cls
+            data = os.listdir(data_root)
+            for idx in data:
+                if 13 < int(idx):
+                    img = root / cls / idx / "LWearDepthRaw.Tif"
+                    self.x.append(img)
+                    self.y.append(i)
+
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, index):
+        image = Image.open(self.x[index])
+        if self.transform:
+            image = Image.fromarray(np.array(image, dtype="float64"))
+            image_flip = self.transform(transforms.RandomHorizontalFlip(p=1)(image))
+            image = self.transform(image)
+        return image, image_flip, self.y[index]
 

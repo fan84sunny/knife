@@ -23,7 +23,7 @@ root = Path('/home/ANYCOLOR2434/knife', 'Batch1_NEW')
 ls = ['P', 'R', 'B']
 dirs = ['train',  'test']
 
-# dirs = ['_train', '_val', '_test']
+# dirs = ['_train', '_val', '_test_1', '_test_2']
 x = []
 for i, cls in enumerate(ls):
     data_root = root / cls
@@ -56,3 +56,14 @@ for link in tqdm(x):
         img_aug = Image.fromarray(img_aug)
         img_aug.save(dirs[b] + "/" + str(link).split('/')[-3] + "/" + str(link).split('/')[-2] + "_" + str(j) + ".tif")
     image_new.save(dirs[b] + "/" + str(link).split('/')[-3] + "/" + str(link).split('/')[-2] + ".tif")
+
+    # if 13 < int(str(link).split('/')[-2]) <= 18:
+    #     b = 2
+    #     image_new.save(dirs[b] + "/" + str(link).split('/')[-3] + "/" + str(link).split('/')[-2] + ".tif")
+    #     b = 3
+    #     image_new.save(dirs[b] + "/" + str(link).split('/')[-3] + "/" + str(link).split('/')[-2] + ".tif")
+    # elif 18 < int(str(link).split('/')[-2]):
+    #     b = 3
+    #     image_new.save(dirs[b] + "/" + str(link).split('/')[-3] + "/" + str(link).split('/')[-2] + ".tif")
+    # else: continue
+

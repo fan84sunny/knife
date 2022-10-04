@@ -48,6 +48,8 @@ def plot_confusion_matrix(save_path, label_list, y_pred_list):
         f.write(classification_report(label_list, pred, target_names=targets) + '\n')
 class TrainDataset(Dataset):
     def __init__(self, train=True, transform=None):
+        print('All Val Dataset:P 5*51 張、R 5*51 張、B 5*51 張')
+
         self.x, self.y = [], []
         self.transform = transform
         self.train = train
@@ -84,10 +86,45 @@ class TrainDataset(Dataset):
             image = self.transform(image)
         return image, image_flip, self.y[index]
 
+class TestDataset(Dataset):
+    def __init__(self, train=False, transform=None):
+        print('TestDataset: 5pcs/per cls')
+        self.x, self.y = [], []
+        self.train = train
+        self.transform = transform
+        root = Path('/home/ANYCOLOR2434/knife')
+        ls = ['P', 'R', 'B']
+        dirs = ['train', 'test']
+        # dirs = ['_train', '_val', '_test']
+
+        if train == True:
+            b = 0
+        else:
+            b = 1
+        for i, cls in enumerate(ls):
+            data_root = root / dirs[b] / cls
+            for idx in range(14, 19):
+                filename = str(idx) + '.tif'
+                img = root / dirs[b] / cls / filename
+                self.x.append(img)
+                self.y.append(i)
+
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, index):
+        image = Image.open(self.x[index])
+        if self.transform:
+            image = Image.fromarray(np.array(image, dtype="float64"))
+            image_flip = self.transform(transforms.RandomHorizontalFlip(p=1)(image))
+            image = self.transform(image)
+        return image, image_flip, self.y[index]
 
 
 class ALLTestDataset(Dataset):
     def __init__(self, train=False, transform=None):
+        print('All test Dataset:P 5 張、R 17 張、B 33 張')
+
         self.x, self.y = [], []
         self.train = train
         self.transform = transform
@@ -106,7 +143,7 @@ class ALLTestDataset(Dataset):
             data_root = root / cls
             data = os.listdir(data_root)
             for idx in data:
-                if int(idx) > 13:
+                if 13 < int(idx):
                     img = root / cls / idx / "LWearDepthRaw.Tif"
                     self.x.append(img)
                     self.y.append(i)
@@ -136,7 +173,7 @@ def set_seed(seed):
 
 
 def ALLtest(save_path, model_path, epochs=50, lr=1e-4, batch_size=8, img_size=224, warm_up=False):
-    print('This is for aug validation!')
+    # print('This is for aug validation!')
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     t_transform = transforms.Compose([
         transforms.Resize([img_size, img_size]),
@@ -147,11 +184,13 @@ def ALLtest(save_path, model_path, epochs=50, lr=1e-4, batch_size=8, img_size=22
         transforms.Normalize(mean=[223.711644], std=[52.5672336]),
         # transforms.Normalize(mean=[1.548061], std=[2.665095]),
     ])
-    val_dataset = TrainDataset(train=False, transform=t_transform)
-    val_loader = DataLoader(dataset=val_dataset, batch_size=1, shuffle=True)
+    # val_dataset = TrainDataset(train=False, transform=t_transform)
+    # val_loader = DataLoader(dataset=val_dataset, batch_size=1, shuffle=True)
+    test_dataset= TestDataset(train=False, transform=t_transform)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=1, shuffle=False)
 
-    t_dataset = ALLTestDataset(train=False, transform=t_transform)
-    t_loader = DataLoader(dataset=t_dataset, batch_size=1, shuffle=False)
+    # t_dataset = ALLTestDataset(train=False, transform=t_transform)
+    # t_loader = DataLoader(dataset=t_dataset, batch_size=1, shuffle=False)
     print('[>] Model '.ljust(64, '-'))
 
     # MODEL
@@ -167,7 +206,7 @@ def ALLtest(save_path, model_path, epochs=50, lr=1e-4, batch_size=8, img_size=22
         ls = ['P', 'R', 'B']
         error_num = 0
         total = 0
-        for bi, (data, data_flip, fileid) in enumerate(tqdm(val_loader)):
+        for bi, (data, data_flip, fileid) in enumerate(tqdm(test_loader)):
             data_flip = data_flip.to(device)
             data = data.to(device)
             fileid = fileid.to(device)
@@ -206,11 +245,12 @@ if __name__ == '__main__':
     save_path = os.path.join("/home/ANYCOLOR2434/knife/logs", current_time)
 
     # setting up writers
-    sys.stdout = Logger(os.path.join(save_path, 'knife_SP_concat_ALLtest.log'))
-
+    sys.stdout = Logger(os.path.join(save_path, 'knife_SP_concat_noSP5test.log'))
+    model_path = '/home/ANYCOLOR2434/knife/logs/Sep17_22-28-32_BESTnoSP/resnet18_xpre_concat_SP.pth'
+    print(model_path)
     # -----------------
     start = time.time()
-    ALLtest(save_path, model_path='/logs/Aug27_00-45-48_best_after_forgotAdd/resnet18_xpre_concat_SP.pth',
+    ALLtest(save_path, model_path=model_path,
             epochs=50, lr=1e-4, batch_size=8, img_size=256, warm_up=False)
     end = time.time()
     # -----------------

@@ -21,6 +21,8 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 # import torchvision.models as models
 # from vit_pytorch import ViT
 from models.resnet18_concat_feat import ResNet18, ResBlock
+# from models.resnet50_concat_feat import ResNet, ResBottleneckBlock
+
 from torch import Tensor
 
 
@@ -150,9 +152,9 @@ class TrainDataset(Dataset):
         image = Image.open(self.x[index])
         if self.transform:
             image = Image.fromarray(np.array(image, dtype="float64"))
-            if np.random.randint(1, 10) % 2 == 1 and self.train:
-                image_np = noisy(np.array(image, dtype="float64"), amount=0.004, s_vs_p=0.5, noise_type="SP")
-                image = Image.fromarray(image_np)
+            # if np.random.randint(1, 10) % 2 == 1 and self.train:
+            #     image_np = noisy(np.array(image, dtype="float64"), amount=0.004, s_vs_p=0.5, noise_type="SP")
+            #     image = Image.fromarray(image_np)
             image_flip = self.transform(transforms.RandomHorizontalFlip(p=1)(image))
             image = self.transform(image)
         return image, image_flip, self.y[index]
@@ -221,7 +223,7 @@ def visualization(save_path, train, test, title):
     plt.xlabel('Epochs')
     plt.ylabel(title)
     plt.title(title)
-    plt.savefig(os.path.join(save_path, f'{title}-resnet18-xpre.png'))
+    plt.savefig(os.path.join(save_path, f'{title}-resnet18-xpre-noSP.png'))
     # plt.show()
 
 
@@ -239,6 +241,7 @@ def set_seed(seed):
 
 def print_cfg(epochs, batch, lr, save_path, seed, img_size, warm_up):
     print('[>] Configuration '.ljust(64, '-'))
+    print('try no noise')
     print('\tTotal epoch: ', epochs)
     print('\tBatch size: ', batch)
     print('\tlearning rate: ', lr)
@@ -291,7 +294,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224, warm_up=Fal
 
     print('[>] Model '.ljust(64, '-'))
     # MODEL
-    ## model: ResNet18
+    # model: ResNet18
     model = ResNet18(ResBlock, num_classes=3).to(device)
 
     ## model: ResNet18 Attention
@@ -302,6 +305,13 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224, warm_up=Fal
     # resnet50.conv1 = nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
     # resnet50.maxpool = nn.Identity()
     # model = Net(resnet50)
+    ## model: resnet50_concat_feats
+    # resnet50 = ResNet(1, ResBottleneckBlock, [3, 4, 6, 3], useBottleneck=True, outputs=3)
+    # model = resnet50
+
+    ## model: resnet101_concat_feats
+    # resnet101 = ResNet(1, ResBottleneckBlock, [3, 4, 23, 3], useBottleneck=True, outputs=3)
+    # model = resnet101
 
     ## model: ViT
     # patch_size = 32
@@ -407,11 +417,11 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224, warm_up=Fal
             best = val_loss
             best_acc1 = val_acc
 
-            torch.save(model, os.path.join(save_path, f'resnet18_xpre_concat_SP.pth'))
+            torch.save(model, os.path.join(save_path, f'resnet18_xpre_concat_xSP.pth'))
         # if val_acc < best_acc:
         #     best_loss = val_loss
         #     best_acc2 = val_acc
-        #     torch.save(model, os.path.join('model_save', f'resnet50_xpre_concat_SP_TOPacc.pth'))
+        #     torch.save(model, os.path.join('model_save', f'resnet101_xpre_concat_SP_TOPacc.pth'))
 
         print(f'Train loss: {train_loss:.4f}\taccuracy: {train_acc:.4f}\n')
         print(f'Test loss: {val_loss:.4f}\taccuracy: {val_acc:.4f}\n')
@@ -424,7 +434,7 @@ def train(save_path, epochs=50, lr=1e-4, batch_size=8, img_size=224, warm_up=Fal
 
     visualization(save_path, train_loss_reg, test_loss_reg, 'Loss')
     visualization(save_path, train_acc_reg, test_acc_reg, 'Acc')
-    model = torch.load(os.path.join(save_path, f'resnet18_xpre_concat_SP.pth'), map_location=device)
+    model = torch.load(os.path.join(save_path, f'resnet18_xpre_concat_xSP.pth'), map_location=device)
     # visual the test set result
 
     model.eval()
